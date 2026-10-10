@@ -5,8 +5,8 @@ editors. A small local daemon keeps the models loaded, and a thin client hands i
 time. Two integrations exist:
 
 - **IrfanView:** press `Shift+1` on an open photo and get the processed copy back.
-- **Affinity** (and other hosts of Photoshop `.8bf` filters): a filter that pixelates tagged faces
-  on the current layer.
+- **Affinity** (and other hosts of Photoshop `.8bf` filters): an **Analyze** filter that finds the
+  badges on the current layer and applies what each one asks for.
 
 The models run on ONNX Runtime, so PyTorch is not needed at runtime.
 
@@ -105,9 +105,16 @@ call" enabled; the client accepts several files.
 
 ## Affinity
 
-`OfflineTags.8bf` is a Photoshop-compatible filter plug-in. It pixelates the faces of people
-wearing a **Blur Me** badge directly on the current pixel layer, as one undoable step. For
-**No Photo** it shows a warning and changes nothing. It draws no consent boxes.
+`OfflineTags.8bf` is a Photoshop-compatible filter plug-in with one menu entry, **Analyze**. It
+looks for badges on the current pixel layer, applies the matching action from the table above as
+one undoable step, and then reports what it found and did:
+
+| Detected | What Analyze does |
+| --- | --- |
+| **Blur Me** | pixelates the wearer's face |
+| **Tag Me**, **Upload Me** | draws a consent box around the wearer |
+| **No Photo** (alone or with others) | changes nothing and warns not to share the photo |
+| no badge | changes nothing |
 
 Build and install (needs Visual Studio or the Build Tools with the C++ workload; the Adobe SDK is
 not required):
@@ -127,7 +134,7 @@ client. Then, once, in Affinity:
 4. Restart Affinity.
 
 With a document open and a pixel layer selected, the filter is at
-**Pixel > Filters > Plugins > OfflineTags > Blur Tagged Faces**.
+**Pixel > Filters > Plugins > OfflineTags > Analyze**.
 
 It works on 8-bit and 16-bit RGB documents. Detection sees only the layer (or the bounds of the
 selection) the filter runs on, so apply it to the photo layer without a selection. The plug-in

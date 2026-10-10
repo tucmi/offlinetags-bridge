@@ -67,7 +67,7 @@ def _pascal(data: bytes) -> str:
 def test_pipl_describes_the_filter():
     properties = _pipl_properties()
     assert properties["kind"][::-1] == b"8BFM"
-    assert _pascal(properties["name"]) == "Blur Tagged Faces"
+    assert _pascal(properties["name"]) == "Analyze"
     assert _pascal(properties["catg"]) == "OfflineTags"
     assert struct.unpack("<i", properties["vers"])[0] == 4 << 16
     assert properties["mode"][0] & 0x10, "RGB mode flag"
@@ -126,8 +126,36 @@ def test_16_bit_keeps_untouched_pixels_exact(plugin_env):
     assert out.max() <= 32768
 
 
+def test_tag_me_gets_a_consent_box(plugin_env):
+    rgb = _sample("tag-me.jpg")
+    result, out = run_filter(str(PLUGIN), rgb, advance_state=True)
+    assert result == NO_ERR
+    changed = (rgb != out).any(axis=2)
+    top, bottom, left, right = _changed_box(rgb, out)
+    # a box outline around the person: tall and wide, but mostly untouched inside
+    assert (bottom - top) > 0.5 * rgb.shape[0] and (right - left) > 0.3 * rgb.shape[1]
+    assert changed[top:bottom, left:right].mean() < 0.2
+
+
+def test_messages_say_what_was_found_and_done(plugin_env):
+    from offlinetags_bridge.paths import state_dir
+
+    log = state_dir() / "plugin.log"
+
+    def last_message(name):
+        run_filter(str(PLUGIN), _sample(name), advance_state=True)
+        lines = log.read_text(encoding="utf-8", errors="replace").split("message: ")
+        return lines[-1]
+
+    both = last_message("blur-and-upload.jpg")
+    assert "1 x Blur Me" in both and "1 x Upload Me" in both
+    assert "pixelated" in both and "consent box" in both
+    assert "do not share" in last_message("no-photo.jpg")
+    assert "no privacy tags" in last_message("no-badge.jpg")
+
+
 @pytest.mark.parametrize("advance_state", [False, True], ids=["classic", "advanceState"])
-@pytest.mark.parametrize("name", ["no-photo.jpg", "no-badge.jpg", "tag-me.jpg"])
+@pytest.mark.parametrize("name", ["no-photo.jpg", "no-badge.jpg"])
 def test_other_outcomes_leave_the_image_alone(plugin_env, name, advance_state):
     rgb = _sample(name)
     result, out = run_filter(str(PLUGIN), rgb, advance_state)

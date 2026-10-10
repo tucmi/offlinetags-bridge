@@ -1,5 +1,10 @@
 /* OfflineTags filter plug-in (.8bf) for Affinity and other Photoshop-compatible hosts.
  *
+ * One menu entry, "Analyze": it looks for privacy badges on the current layer
+ * and applies what each badge asks for. Blur Me pixelates the wearer's face,
+ * Tag Me and Upload Me draw a consent box, No Photo changes nothing and warns.
+ * A message box then says what was found and what was done.
+ *
  * The plug-in does no image analysis itself. It writes the pixels to a BMP,
  * runs "offlinetags-bridge process" on it (which talks to the daemon, starting
  * it if needed) and copies back the pixels that came back changed.
@@ -25,8 +30,11 @@
 /* exit codes of "offlinetags-bridge process" */
 enum { CLIENT_DONE = 0, CLIENT_ERROR = 1, CLIENT_NO_PHOTO = 2 };
 
+static void trace(const char *format, ...);
+
 static void notify(const wchar_t *text, UINT icon)
 {
+    trace("message: %ls", text);
     /* set by the tests, which have nobody to click OK */
     if (GetEnvironmentVariableW(L"OFFLINETAGS_BRIDGE_QUIET", NULL, 0) > 0)
         return;
@@ -136,7 +144,7 @@ static int run_client(const wchar_t *client, const wchar_t *input, const wchar_t
         return -1;
 
     wchar_t command[4 * PATH_CHARS];
-    swprintf_s(command, 4 * PATH_CHARS, L"\"%s\" process \"%s\" -o \"%s\" --no-annotate",
+    swprintf_s(command, 4 * PATH_CHARS, L"\"%s\" process \"%s\" -o \"%s\" --json",
                client, input, output);
 
     STARTUPINFOW startup = { sizeof startup };
@@ -201,6 +209,51 @@ static void report_failure(const wchar_t *log_path)
         free(text);
     }
     notify(message, MB_ICONERROR);
+}
+
+typedef struct { int blur, no_photo, tag, upload; } TagCounts;
+
+static int count_occurrences(const char *text, const char *needle)
+{
+    int count = 0;
+    for (const char *at = strstr(text, needle); at; at = strstr(at + 1, needle))
+        count++;
+    return count;
+}
+
+/* Counts the detections in the JSON line the client printed. */
+static TagCounts read_tags(const wchar_t *log_path)
+{
+    TagCounts tags = { 0 };
+    uint8_t *text;
+    DWORD size;
+    if (read_file(log_path, &text, &size)) {
+        tags.blur = count_occurrences((const char *)text, "\"tag_type\": \"Blur Me\"");
+        tags.no_photo = count_occurrences((const char *)text, "\"tag_type\": \"No Photo\"");
+        tags.tag = count_occurrences((const char *)text, "\"tag_type\": \"Tag Me\"");
+        tags.upload = count_occurrences((const char *)text, "\"tag_type\": \"Upload Me\"");
+        free(text);
+    }
+    return tags;
+}
+
+/* "Detected: 1 x Blur Me, 2 x Tag Me." */
+static void describe_tags(const TagCounts *tags, wchar_t *out, size_t chars)
+{
+    const struct { int count; const wchar_t *name; } rows[] = {
+        { tags->no_photo, L"No Photo" }, { tags->blur, L"Blur Me" },
+        { tags->tag, L"Tag Me" }, { tags->upload, L"Upload Me" },
+    };
+    wcscpy_s(out, chars, L"Detected: ");
+    BOOL any = FALSE;
+    for (int i = 0; i < 4; i++) {
+        if (rows[i].count == 0)
+            continue;
+        size_t used = wcslen(out);
+        swprintf_s(out + used, chars - used, L"%s%d x %s", any ? L", " : L"", rows[i].count, rows[i].name);
+        any = TRUE;
+    }
+    wcscat_s(out, chars, any ? L"." : L"no privacy tags.");
 }
 
 static int sample_bytes(const FilterRecord *rec)
@@ -283,20 +336,25 @@ static int16_t filter_pixels(FilterRecord *rec)
 
     const int exit_code = run_client(client, input, output, log_path);
     trace("client exit code %d", exit_code);
-    switch (exit_code) {
-    case CLIENT_NO_PHOTO:
-        notify(L"'No Photo' tag found - do not share this photo.\n\nThe image was not changed.",
-               MB_ICONWARNING);
-        goto done;
-    case CLIENT_DONE:
-        break;
-    default:
+    if (exit_code != CLIENT_DONE && exit_code != CLIENT_NO_PHOTO) {
         report_failure(log_path);
         goto done;
     }
 
+    const TagCounts tags = read_tags(log_path);
+    wchar_t detected[200], message[600];
+    describe_tags(&tags, detected, 200);
+
+    if (exit_code == CLIENT_NO_PHOTO) {
+        swprintf_s(message, 600, L"%s\n\nA 'No Photo' tag is present - do not share this photo.\n"
+                                 L"The image was not changed.", detected);
+        notify(message, MB_ICONWARNING);
+        goto done;
+    }
+
     if (!read_file(output, &reply, &reply_size)) {
-        notify(L"No 'Blur Me' tag found.\n\nThe image was not changed.", MB_ICONINFORMATION);
+        swprintf_s(message, 600, L"%s\n\nNothing to apply. The image was not changed.", detected);
+        notify(message, MB_ICONINFORMATION);
         goto done;
     }
 
@@ -326,6 +384,11 @@ static int16_t filter_pixels(FilterRecord *rec)
     }
     result = noErr;
 
+    swprintf_s(message, 600, L"%s\n\nApplied:%s%s", detected,
+               tags.blur ? L"\n- pixelated the face of each 'Blur Me' wearer" : L"",
+               tags.tag + tags.upload ? L"\n- drew a consent box around each 'Tag Me' / 'Upload Me' wearer" : L"");
+    notify(message, MB_ICONINFORMATION);
+
 done:
     free(sent);
     free(reply);
@@ -350,7 +413,7 @@ __declspec(dllexport) void PluginMain(const int16_t selector, FilterRecord *rec,
     switch (selector) {
     case filterSelectorAbout:
         /* rec is an AboutRecord here, do not touch it */
-        notify(L"OfflineTags\n\nPixelates the faces of people wearing a 'Blur Me' privacy badge.\n"
+        notify(L"OfflineTags\n\nFinds privacy badges and applies what each one asks for.\n"
                L"https://github.com/Andx667/offlinetags-bridge", MB_ICONINFORMATION);
         break;
 

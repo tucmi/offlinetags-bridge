@@ -13,8 +13,8 @@ BEGIN
     /* kind: filter */
     "MIB8", "dnik", 0L, 4L, "MFB8",
 
-    /* name: Pascal string, 17 characters */
-    "MIB8", "eman", 0L, 20L, "\021Blur Tagged Faces\0\0",
+    /* name: Pascal string, 7 characters */
+    "MIB8", "eman", 0L, 8L, "\007Analyze",
 
     /* catg: menu category, Pascal string, 11 characters */
     "MIB8", "gtac", 0L, 12L, "\013OfflineTags",

@@ -60,4 +60,4 @@ Write-Host '  1. Open Settings and go to "Photoshop Plugins".'
 Write-Host "  2. Add this plug-in search folder: $PluginDir"
 Write-Host '  3. Tick "Allow unknown plugins to be used".'
 Write-Host '  4. Restart Affinity.'
-Write-Host 'Then select a pixel layer and choose Pixel > Filters > Plugins > OfflineTags > Blur Tagged Faces.'
+Write-Host 'Then select a pixel layer and choose Pixel > Filters > Plugins > OfflineTags > Analyze.'
