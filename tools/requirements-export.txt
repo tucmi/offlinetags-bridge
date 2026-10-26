@@ -2,6 +2,6 @@
 # For a smaller download install CPU-only torch first:
 #   pip install torch --index-url https://download.pytorch.org/whl/cpu
 torch
-ultralytics>=8.0
+ultralytics>=8.4.184
 onnx
 onnxslim
